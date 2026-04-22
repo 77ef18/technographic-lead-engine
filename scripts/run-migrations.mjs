@@ -1,9 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Pool } from "pg";
+import dotenv from "dotenv";
 
 const MIGRATION_TABLE = "_migrations";
 const migrationsDir = path.join(process.cwd(), "db", "migrations");
+
+dotenv.config({ path: path.join(process.cwd(), ".env.local") });
+dotenv.config();
 
 async function ensureMigrationsTable(pool) {
   await pool.query(`

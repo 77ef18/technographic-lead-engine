@@ -43,6 +43,9 @@ npm run dev
 - `DELETE /api/keys/:id` (admin)
 - `POST /api/domains` (requires `x-api-key`)
 - `GET /api/domains` (requires `x-api-key`)
+- `POST /api/crawl/:domainId` (requires `x-api-key`)
+- `GET /api/crawl-jobs/:id` (requires `x-api-key`)
+- `GET /api/domains/:id/history` (requires `x-api-key`)
 
 See `API.md` for request/response examples.
 

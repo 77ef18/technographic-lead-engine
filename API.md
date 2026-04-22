@@ -72,3 +72,30 @@ Query parameters:
 - `search=<substring>` (optional)
 - `limit=<1..200>` (default `50`)
 - `offset=<0+>` (default `0`)
+
+## POST /api/crawl/:domainId
+
+Create a crawl job and execute it immediately.
+
+Response:
+
+```json
+{
+  "crawlJob": {
+    "id": "...",
+    "status": "succeeded",
+    "domainId": "...",
+    "pagesAttempted": 4,
+    "pagesStored": 3,
+    "baseUrl": "https://example.com"
+  }
+}
+```
+
+## GET /api/crawl-jobs/:id
+
+Fetch crawl job status and timestamps.
+
+## GET /api/domains/:id/history
+
+List recent crawl jobs for a domain.

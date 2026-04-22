@@ -35,3 +35,11 @@
 - Queue-backed crawl jobs (`queued -> running -> succeeded/failed`)
 - Multi-page extraction (`/`, `/about`, `/pricing`, `/blog`)
 - Raw artifact persistence in `crawl_pages`
+
+## Milestone 2 (Implemented)
+
+- `POST /api/crawl/:domainId` creates a crawl job and runs worker logic.
+- Worker fetches homepage plus key paths with timeout + retry.
+- Response artifacts are persisted in `crawl_pages` (headers/cookies/scripts/meta/hash).
+- Homepage metadata snapshot is persisted to `enrichments`.
+- `GET /api/crawl-jobs/:id` and `GET /api/domains/:id/history` provide scan visibility.

@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 
 import { authenticateApiKey } from "@/lib/auth";
 import { dbQuery } from "@/lib/db";
+import { isDatabaseUnavailable } from "@/lib/db-error";
 import { normalizeDomain } from "@/lib/domain";
 import { jsonError } from "@/lib/http";
 
@@ -47,19 +48,27 @@ export async function POST(request: NextRequest) {
 
   const status = parsed.data.status ?? "active";
 
-  const result = await dbQuery<DomainRow>(
-    `
-      INSERT INTO domains (domain, status)
-      VALUES ($1, $2)
-      ON CONFLICT (domain) DO UPDATE SET
-        status = EXCLUDED.status,
-        updated_at = NOW()
-      RETURNING id, domain, status, created_at, updated_at
-    `,
-    [normalized, status],
-  );
+  try {
+    const result = await dbQuery<DomainRow>(
+      `
+        INSERT INTO domains (domain, status)
+        VALUES ($1, $2)
+        ON CONFLICT (domain) DO UPDATE SET
+          status = EXCLUDED.status,
+          updated_at = NOW()
+        RETURNING id, domain, status, created_at, updated_at
+      `,
+      [normalized, status],
+    );
 
-  return Response.json({ domain: result.rows[0] }, { status: 201 });
+    return Response.json({ domain: result.rows[0] }, { status: 201 });
+  } catch (error) {
+    if (isDatabaseUnavailable(error)) {
+      return jsonError("Database unavailable. Ensure Postgres is running and DATABASE_URL is correct.", 503);
+    }
+
+    throw error;
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -98,17 +107,25 @@ export async function GET(request: NextRequest) {
   const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
   values.push(query.data.limit, query.data.offset);
 
-  const result = await dbQuery<DomainRow>(
-    `
-      SELECT id, domain, status, created_at, updated_at
-      FROM domains
-      ${whereClause}
-      ORDER BY created_at DESC
-      LIMIT $${idx}
-      OFFSET $${idx + 1}
-    `,
-    values,
-  );
+  try {
+    const result = await dbQuery<DomainRow>(
+      `
+        SELECT id, domain, status, created_at, updated_at
+        FROM domains
+        ${whereClause}
+        ORDER BY created_at DESC
+        LIMIT $${idx}
+        OFFSET $${idx + 1}
+      `,
+      values,
+    );
 
-  return Response.json({ domains: result.rows });
+    return Response.json({ domains: result.rows });
+  } catch (error) {
+    if (isDatabaseUnavailable(error)) {
+      return jsonError("Database unavailable. Ensure Postgres is running and DATABASE_URL is correct.", 503);
+    }
+
+    throw error;
+  }
 }
