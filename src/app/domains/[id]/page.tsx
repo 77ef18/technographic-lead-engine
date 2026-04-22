@@ -8,6 +8,7 @@ async function triggerScan(formData: FormData) {
   "use server";
 
   const domainId = String(formData.get("domainId") ?? "");
+  const targetUrlRaw = String(formData.get("targetUrl") ?? "").trim();
   if (!domainId) {
     return;
   }
@@ -35,7 +36,9 @@ async function triggerScan(formData: FormData) {
     [domain.id],
   );
 
-  await executeCrawlJob(jobResult.rows[0].id, domain);
+  await executeCrawlJob(jobResult.rows[0].id, domain, {
+    seedUrl: targetUrlRaw || undefined,
+  });
   revalidatePath(`/domains/${domainId}`);
   revalidatePath("/domains");
 }
@@ -132,8 +135,14 @@ export default async function DomainDetailPage(props: PageProps<"/domains/[id]">
           <h1 className="text-2xl font-semibold">{domain.domain}</h1>
           <p className="text-sm text-zinc-600 dark:text-zinc-300">Status: {domain.status}</p>
         </div>
-        <form action={triggerScan}>
+        <form action={triggerScan} className="flex items-center gap-2">
           <input type="hidden" name="domainId" value={domain.id} />
+          <input
+            type="url"
+            name="targetUrl"
+            placeholder="Optional page URL (e.g. https://beds.co.uk/headboards/...)"
+            className="w-96 rounded border border-zinc-300 px-3 py-2 text-xs dark:border-zinc-600"
+          />
           <button className="rounded bg-black px-4 py-2 text-sm text-white dark:bg-white dark:text-black">
             Trigger scan
           </button>

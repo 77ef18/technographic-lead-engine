@@ -18,6 +18,12 @@ type JobRow = {
   status: "queued" | "running" | "succeeded" | "failed" | "retrying";
 };
 
+const crawlBodySchema = z
+  .object({
+    targetUrl: z.string().url().optional(),
+  })
+  .optional();
+
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ domainId: string }> },
@@ -32,6 +38,13 @@ export async function POST(
   if (!parsedId.success) {
     return jsonError("Invalid domain id.");
   }
+
+  const rawBody = await request.json().catch(() => ({}));
+  const parsedBody = crawlBodySchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return jsonError("Invalid request body.");
+  }
+  const targetUrl = parsedBody.data?.targetUrl;
 
   try {
     const domainResult = await dbQuery<DomainRow>(
@@ -67,6 +80,8 @@ export async function POST(
       const summary = await executeCrawlJob(job.id, {
         id: domain.id,
         domain: domain.domain,
+      }, {
+        seedUrl: targetUrl,
       });
 
       return Response.json({

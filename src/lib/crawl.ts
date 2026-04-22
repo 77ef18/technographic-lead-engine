@@ -25,6 +25,10 @@ type CrawlSummary = {
   baseUrl: string;
 };
 
+type CrawlOptions = {
+  seedUrl?: string;
+};
+
 type FetchResult = {
   url: string;
   statusCode: number;
@@ -323,16 +327,57 @@ function getBaseCandidates(domain: string) {
   return [`https://${domain}`, `http://${domain}`];
 }
 
-export async function executeCrawlJob(jobId: string, domain: CrawlDomain): Promise<CrawlSummary> {
+function normalizeHostname(value: string) {
+  return value.trim().toLowerCase().replace(/^www\./, "");
+}
+
+function canonicalizeUrl(value: string) {
+  const url = new URL(value);
+  url.hash = "";
+  url.search = "";
+  if (url.pathname.endsWith("/") && url.pathname !== "/") {
+    url.pathname = url.pathname.slice(0, -1);
+  }
+  return url.toString();
+}
+
+function normalizeSeedUrl(seedUrl: string | undefined, domain: string) {
+  if (!seedUrl) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(seedUrl);
+    const seedHost = normalizeHostname(parsed.hostname);
+    const domainHost = normalizeHostname(domain);
+    if (seedHost !== domainHost) {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+export async function executeCrawlJob(
+  jobId: string,
+  domain: CrawlDomain,
+  options: CrawlOptions = {},
+): Promise<CrawlSummary> {
   await updateJobStatus(jobId, "running", { started: true, errorMessage: null });
   logEvent("info", "crawl_job_started", { crawl_job_id: jobId, domain_id: domain.id, domain: domain.domain });
 
   try {
+    const seedUrl = normalizeSeedUrl(options.seedUrl, domain.domain);
+
     let baseUrl = "";
     let homepage: FetchResult | null = null;
     let lastBaseError: unknown;
 
-    for (const candidate of getBaseCandidates(domain.domain)) {
+    const baseCandidates = seedUrl
+      ? [seedUrl, ...getBaseCandidates(domain.domain)]
+      : getBaseCandidates(domain.domain);
+    for (const candidate of baseCandidates) {
       try {
         const result = await fetchWithRetry(candidate);
         homepage = result;
@@ -348,10 +393,31 @@ export async function executeCrawlJob(jobId: string, domain: CrawlDomain): Promi
     }
 
     const pageResults: FetchResult[] = [homepage];
-    const extraPaths = CRAWL_PATHS.slice(1, MAX_PAGES);
 
-    for (const pagePath of extraPaths) {
-      const pageUrl = `${baseUrl}${pagePath}`;
+    const queue: string[] = [];
+    if (seedUrl) {
+      queue.push(seedUrl);
+    }
+    queue.push(...CRAWL_PATHS.map((path) => `${baseUrl}${path}`));
+
+    const seen = new Set<string>([canonicalizeUrl(homepage.url)]);
+    for (const pageUrl of queue) {
+      if (pageResults.length >= MAX_PAGES) {
+        break;
+      }
+
+      let canonical = "";
+      try {
+        canonical = canonicalizeUrl(pageUrl);
+      } catch {
+        continue;
+      }
+
+      if (seen.has(canonical)) {
+        continue;
+      }
+      seen.add(canonical);
+
       try {
         const result = await fetchWithRetry(pageUrl);
         pageResults.push(result);
@@ -422,6 +488,7 @@ export async function executeCrawlJob(jobId: string, domain: CrawlDomain): Promi
         JSON.stringify(dnsData),
         JSON.stringify(tlsData),
         JSON.stringify({
+          seed_url: seedUrl,
           pagesAttempted: CRAWL_PATHS.length,
           pagesStored: pageResults.length,
           crawledAt: new Date().toISOString(),

@@ -10,6 +10,7 @@ async function addDomain(formData: FormData) {
   "use server";
 
   const rawDomain = String(formData.get("domain") ?? "");
+  const targetUrlRaw = String(formData.get("targetUrl") ?? "").trim();
   const status = String(formData.get("status") ?? "active");
   if (!rawDomain) {
     redirect("/domains?error=empty_domain");
@@ -22,18 +23,36 @@ async function addDomain(formData: FormData) {
     redirect("/domains?error=invalid_domain");
   }
 
-  await dbQuery(
+  const result = await dbQuery<{ id: string; domain: string }>(
     `
       INSERT INTO domains (domain, status)
       VALUES ($1, $2)
       ON CONFLICT (domain) DO UPDATE SET
         status = EXCLUDED.status,
         updated_at = NOW()
+      RETURNING id, domain
     `,
     [normalized, status],
   );
+
+  if (targetUrlRaw) {
+    const savedDomain = result.rows[0];
+    const jobResult = await dbQuery<{ id: string }>(
+      `
+        INSERT INTO crawl_jobs (domain_id, trigger, status, attempts)
+        VALUES ($1, 'manual', 'queued', 1)
+        RETURNING id
+      `,
+      [savedDomain.id],
+    );
+    await executeCrawlJob(jobResult.rows[0].id, savedDomain, {
+      seedUrl: targetUrlRaw,
+    });
+  }
   revalidatePath("/domains");
-  redirect(`/domains?notice=domain_saved&domain=${encodeURIComponent(normalized)}`);
+  redirect(
+    `/domains?notice=domain_saved&domain=${encodeURIComponent(normalized)}${targetUrlRaw ? "&scanned=1" : ""}`,
+  );
 }
 
 async function importCsv(formData: FormData) {
@@ -115,6 +134,7 @@ export default async function DomainsPage(props: PageProps<"/domains">) {
   const notice = searchParams.notice ? String(searchParams.notice) : "";
   const noticeDomain = searchParams.domain ? String(searchParams.domain) : "";
   const importedCount = searchParams.count ? String(searchParams.count) : "";
+  const scanned = searchParams.scanned ? String(searchParams.scanned) : "";
 
   const result = await dbQuery<{
     id: string;
@@ -155,6 +175,7 @@ export default async function DomainsPage(props: PageProps<"/domains">) {
       {notice ? (
         <section className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
           {notice === "domain_saved" ? `Saved domain: ${noticeDomain}` : null}
+          {notice === "domain_saved" && scanned === "1" ? " and started a targeted crawl." : null}
           {notice === "csv_imported" ? `Imported ${importedCount || "0"} CSV row(s).` : null}
         </section>
       ) : null}
@@ -167,6 +188,12 @@ export default async function DomainsPage(props: PageProps<"/domains">) {
             placeholder="example.com"
             required
             className="rounded border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600"
+          />
+          <input
+            type="url"
+            name="targetUrl"
+            placeholder="Optional page URL to crawl immediately"
+            className="w-72 rounded border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600"
           />
           <select
             name="status"
