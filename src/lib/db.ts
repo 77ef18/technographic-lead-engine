@@ -1,4 +1,4 @@
-import { Pool } from "pg";
+import { Pool, type QueryResultRow } from "pg";
 
 declare global {
   var __dbPool: Pool | undefined;
@@ -19,7 +19,10 @@ function getPool() {
   return global.__dbPool;
 }
 
-export async function dbQuery<T = unknown>(text: string, params: unknown[] = []) {
+export async function dbQuery<T extends QueryResultRow = QueryResultRow>(
+  text: string,
+  params: unknown[] = [],
+) {
   const pool = getPool();
   return pool.query<T>(text, params);
 }
