@@ -1,5 +1,7 @@
 import { revalidatePath } from "next/cache";
+import Link from "next/link";
 
+import { executeCrawlJob } from "@/lib/crawl";
 import { dbQuery } from "@/lib/db";
 import { normalizeDomain } from "@/lib/domain";
 
@@ -50,6 +52,43 @@ async function importCsv(formData: FormData) {
     }
   }
   revalidatePath("/domains");
+}
+
+async function triggerScan(formData: FormData) {
+  "use server";
+
+  const domainId = String(formData.get("domainId") ?? "");
+  if (!domainId) {
+    return;
+  }
+
+  const result = await dbQuery<{ id: string; domain: string }>(
+    `
+      SELECT id, domain
+      FROM domains
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [domainId],
+  );
+
+  const domain = result.rows[0];
+  if (!domain) {
+    return;
+  }
+
+  const jobResult = await dbQuery<{ id: string }>(
+    `
+      INSERT INTO crawl_jobs (domain_id, trigger, status, attempts)
+      VALUES ($1, 'manual', 'queued', 1)
+      RETURNING id
+    `,
+    [domain.id],
+  );
+
+  await executeCrawlJob(jobResult.rows[0].id, domain);
+  revalidatePath("/domains");
+  revalidatePath(`/domains/${domain.id}`);
 }
 
 export default async function DomainsPage() {
@@ -139,18 +178,35 @@ export default async function DomainsPage() {
                 <th className="py-2 pr-4">Domain</th>
                 <th className="py-2 pr-4">Status</th>
                 <th className="py-2 pr-4">Last scan</th>
+                <th className="py-2 pr-4">Actions</th>
               </tr>
             </thead>
             <tbody>
               {result.rows.map((row) => (
                 <tr key={row.id} className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4">
-                    <a className="underline" href={`/domains/${row.id}`}>
+                    <Link className="underline" href={`/domains/${row.id}`}>
                       {row.domain}
-                    </a>
+                    </Link>
                   </td>
                   <td className="py-2 pr-4">{row.status}</td>
                   <td className="py-2 pr-4">{formatDate(row.last_scan_at)}</td>
+                  <td className="py-2 pr-4">
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/domains/${row.id}`}
+                        className="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-600"
+                      >
+                        Open
+                      </Link>
+                      <form action={triggerScan}>
+                        <input type="hidden" name="domainId" value={row.id} />
+                        <button className="rounded bg-black px-2 py-1 text-xs text-white dark:bg-white dark:text-black">
+                          Scan now
+                        </button>
+                      </form>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
