@@ -65,3 +65,5 @@ See `API.md` for request/response examples.
 - `API.md` - endpoint contract currently implemented
 - `RUNBOOK.md` - operational runbook and failure handling
 - `DATA_RETENTION.md` - retention policy
+- `DEPLOYMENT.md` - Vercel + Neon + GitHub Actions setup
+- `integrations/google-apps-script/README.md` - Gmail alerts and sheet sync

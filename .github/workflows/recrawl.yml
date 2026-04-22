@@ -1,0 +1,32 @@
+name: Scheduled Recrawl
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  recrawl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger recrawl endpoint
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          RECRAWL_BATCH: ${{ secrets.RECRAWL_BATCH }}
+          RECRAWL_STALE_HOURS: ${{ secrets.RECRAWL_STALE_HOURS }}
+        run: |
+          if [ -z "$APP_BASE_URL" ] || [ -z "$ADMIN_TOKEN" ]; then
+            echo "APP_BASE_URL and ADMIN_TOKEN secrets are required."
+            exit 1
+          fi
+
+          BATCH=${RECRAWL_BATCH:-20}
+          STALE_HOURS=${RECRAWL_STALE_HOURS:-168}
+          URL="${APP_BASE_URL%/}/api/cron/recrawl?batch=${BATCH}&staleHours=${STALE_HOURS}"
+
+          echo "Calling: $URL"
+          curl --fail --show-error --silent \
+            --request POST \
+            --header "x-admin-token: $ADMIN_TOKEN" \
+            "$URL"

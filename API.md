@@ -152,3 +152,4 @@ Filter query:
 - `GET /api/admin/failed-jobs`
 - `GET /api/admin/metrics`
 - `POST /api/cron/recrawl?batch=10&staleHours=168`
+- `GET /api/health`
