@@ -1,0 +1,22 @@
+[
+  {
+    "domain": "shopify.com",
+    "expectedTechnologies": ["shopify", "google-tag-manager"],
+    "confidenceBand": "high"
+  },
+  {
+    "domain": "wordpress.org",
+    "expectedTechnologies": ["wordpress"],
+    "confidenceBand": "high"
+  },
+  {
+    "domain": "hubspot.com",
+    "expectedTechnologies": ["hubspot", "google-analytics"],
+    "confidenceBand": "medium"
+  },
+  {
+    "domain": "stripe.com",
+    "expectedTechnologies": ["stripe"],
+    "confidenceBand": "high"
+  }
+]

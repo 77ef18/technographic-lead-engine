@@ -1,13 +1,18 @@
 import crypto from "node:crypto";
+import dns from "node:dns/promises";
+import tls from "node:tls";
 
 import { load } from "cheerio";
 
 import { dbQuery } from "@/lib/db";
+import { runFingerprintDetection } from "@/lib/fingerprint";
+import { logEvent } from "@/lib/log";
 
 const CRAWL_PATHS = ["/", "/about", "/pricing", "/blog"];
 const FETCH_TIMEOUT_MS = 8_000;
 const MAX_ATTEMPTS_PER_PAGE = 2;
 const MAX_PAGES = 4;
+const TLS_TIMEOUT_MS = 6_000;
 
 type CrawlDomain = {
   id: string;
@@ -119,6 +124,60 @@ function hashHtml(html: string) {
   return crypto.createHash("sha256").update(html).digest("hex");
 }
 
+async function safeResolveDns(domain: string) {
+  const output: Record<string, unknown> = {};
+
+  const tasks: Array<[string, Promise<unknown>]> = [
+    ["a", dns.resolve4(domain)],
+    ["aaaa", dns.resolve6(domain)],
+    ["mx", dns.resolveMx(domain)],
+    ["ns", dns.resolveNs(domain)],
+    ["txt", dns.resolveTxt(domain)],
+  ];
+
+  for (const [key, task] of tasks) {
+    try {
+      const value = await task;
+      output[key] = value;
+    } catch {
+      output[key] = [];
+    }
+  }
+
+  return output;
+}
+
+async function safeReadTls(domain: string) {
+  return new Promise<Record<string, unknown>>((resolve) => {
+    const socket = tls.connect(
+      {
+        host: domain,
+        port: 443,
+        servername: domain,
+        rejectUnauthorized: false,
+        timeout: TLS_TIMEOUT_MS,
+      },
+      () => {
+        const cert = socket.getPeerCertificate();
+        resolve({
+          subject: cert?.subject ?? null,
+          issuer: cert?.issuer ?? null,
+          valid_from: cert?.valid_from ?? null,
+          valid_to: cert?.valid_to ?? null,
+          subjectaltname: cert?.subjectaltname ?? null,
+        });
+        socket.end();
+      },
+    );
+
+    socket.on("error", () => resolve({}));
+    socket.on("timeout", () => {
+      socket.destroy();
+      resolve({});
+    });
+  });
+}
+
 async function fetchOne(url: string): Promise<FetchResult> {
   const start = Date.now();
   const response = await fetch(url, {
@@ -197,121 +256,166 @@ async function updateJobStatus(
   );
 }
 
+async function markJobFailure(jobId: string, message: string) {
+  const attemptsResult = await dbQuery<{ attempts: number }>(
+    `
+      SELECT attempts
+      FROM crawl_jobs
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [jobId],
+  );
+  const attempts = attemptsResult.rows[0]?.attempts ?? 1;
+  const retryCap = 3;
+
+  if (attempts >= retryCap) {
+    await dbQuery(`UPDATE crawl_jobs SET attempts = attempts + 1 WHERE id = $1`, [jobId]);
+    await updateJobStatus(jobId, "failed", {
+      finished: true,
+      errorMessage: `[dead-letter] ${message}`,
+    });
+    return;
+  }
+
+  await dbQuery(`UPDATE crawl_jobs SET attempts = attempts + 1 WHERE id = $1`, [jobId]);
+  await updateJobStatus(jobId, "retrying", {
+    finished: true,
+    errorMessage: message,
+  });
+}
+
 function getBaseCandidates(domain: string) {
   return [`https://${domain}`, `http://${domain}`];
 }
 
 export async function executeCrawlJob(jobId: string, domain: CrawlDomain): Promise<CrawlSummary> {
   await updateJobStatus(jobId, "running", { started: true, errorMessage: null });
+  logEvent("info", "crawl_job_started", { crawl_job_id: jobId, domain_id: domain.id, domain: domain.domain });
 
-  let baseUrl = "";
-  let homepage: FetchResult | null = null;
-  let lastBaseError: unknown;
+  try {
+    let baseUrl = "";
+    let homepage: FetchResult | null = null;
+    let lastBaseError: unknown;
 
-  for (const candidate of getBaseCandidates(domain.domain)) {
-    try {
-      const result = await fetchWithRetry(candidate);
-      homepage = result;
-      baseUrl = new URL(result.url).origin;
-      break;
-    } catch (error) {
-      lastBaseError = error;
+    for (const candidate of getBaseCandidates(domain.domain)) {
+      try {
+        const result = await fetchWithRetry(candidate);
+        homepage = result;
+        baseUrl = new URL(result.url).origin;
+        break;
+      } catch (error) {
+        lastBaseError = error;
+      }
     }
-  }
 
-  if (!homepage || !baseUrl) {
-    await updateJobStatus(jobId, "failed", {
-      finished: true,
-      errorMessage: `Failed to fetch domain root: ${String(lastBaseError)}`,
-    });
-    throw new Error("Unable to fetch homepage for crawl.");
-  }
-
-  const pageResults: FetchResult[] = [homepage];
-  const extraPaths = CRAWL_PATHS.slice(1, MAX_PAGES);
-
-  for (const pagePath of extraPaths) {
-    const pageUrl = `${baseUrl}${pagePath}`;
-    try {
-      const result = await fetchWithRetry(pageUrl);
-      pageResults.push(result);
-    } catch {
-      // Skip failed auxiliary page; other pages can still provide useful signals.
+    if (!homepage || !baseUrl) {
+      throw new Error(`Failed to fetch domain root: ${String(lastBaseError)}`);
     }
-  }
 
-  for (const page of pageResults) {
+    const pageResults: FetchResult[] = [homepage];
+    const extraPaths = CRAWL_PATHS.slice(1, MAX_PAGES);
+
+    for (const pagePath of extraPaths) {
+      const pageUrl = `${baseUrl}${pagePath}`;
+      try {
+        const result = await fetchWithRetry(pageUrl);
+        pageResults.push(result);
+      } catch {
+        // Skip failed auxiliary page; other pages can still provide useful signals.
+      }
+    }
+
+    for (const page of pageResults) {
+      await dbQuery(
+        `
+          INSERT INTO crawl_pages (
+            crawl_job_id,
+            url,
+            status_code,
+            response_time_ms,
+            html_hash,
+            headers_json,
+            cookies_json,
+            scripts_json,
+            meta_json
+          )
+          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb)
+        `,
+        [
+          jobId,
+          page.url,
+          page.statusCode,
+          page.responseTimeMs,
+          page.htmlHash,
+          JSON.stringify(page.headers),
+          JSON.stringify(page.cookies),
+          JSON.stringify(page.scripts),
+          JSON.stringify(page.meta),
+        ],
+      );
+    }
+
+    const homeSignals = extractSignals(homepage.html);
+    const dnsData = await safeResolveDns(domain.domain);
+    const tlsData = await safeReadTls(domain.domain);
     await dbQuery(
       `
-        INSERT INTO crawl_pages (
+        INSERT INTO enrichments (
+          domain_id,
           crawl_job_id,
-          url,
-          status_code,
-          response_time_ms,
-          html_hash,
-          headers_json,
-          cookies_json,
-          scripts_json,
-          meta_json
+          title,
+          description,
+          language,
+          linkedin_url,
+          x_url,
+          facebook_url,
+          dns_json,
+          tls_json,
+          raw_json
         )
-        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb)
       `,
       [
+        domain.id,
         jobId,
-        page.url,
-        page.statusCode,
-        page.responseTimeMs,
-        page.htmlHash,
-        JSON.stringify(page.headers),
-        JSON.stringify(page.cookies),
-        JSON.stringify(page.scripts),
-        JSON.stringify(page.meta),
+        homeSignals.title,
+        homeSignals.description,
+        homeSignals.language,
+        homeSignals.social.linkedin,
+        homeSignals.social.x,
+        homeSignals.social.facebook,
+        JSON.stringify(dnsData),
+        JSON.stringify(tlsData),
+        JSON.stringify({
+          pagesAttempted: CRAWL_PATHS.length,
+          pagesStored: pageResults.length,
+          crawledAt: new Date().toISOString(),
+        }),
       ],
     );
+
+    await runFingerprintDetection(domain.id, jobId);
+
+    await updateJobStatus(jobId, "succeeded", { finished: true });
+    logEvent("info", "crawl_job_succeeded", {
+      crawl_job_id: jobId,
+      domain_id: domain.id,
+      pages_stored: pageResults.length,
+    });
+
+    return {
+      pagesAttempted: CRAWL_PATHS.length,
+      pagesStored: pageResults.length,
+      baseUrl,
+    };
+  } catch (error) {
+    await markJobFailure(jobId, String(error));
+    logEvent("error", "crawl_job_failed", {
+      crawl_job_id: jobId,
+      domain_id: domain.id,
+      error: String(error),
+    });
+    throw error;
   }
-
-  const homeSignals = extractSignals(homepage.html);
-  await dbQuery(
-    `
-      INSERT INTO enrichments (
-        domain_id,
-        crawl_job_id,
-        title,
-        description,
-        language,
-        linkedin_url,
-        x_url,
-        facebook_url,
-        dns_json,
-        tls_json,
-        raw_json
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb)
-    `,
-    [
-      domain.id,
-      jobId,
-      homeSignals.title,
-      homeSignals.description,
-      homeSignals.language,
-      homeSignals.social.linkedin,
-      homeSignals.social.x,
-      homeSignals.social.facebook,
-      JSON.stringify({}),
-      JSON.stringify({}),
-      JSON.stringify({
-        pagesAttempted: CRAWL_PATHS.length,
-        pagesStored: pageResults.length,
-        crawledAt: new Date().toISOString(),
-      }),
-    ],
-  );
-
-  await updateJobStatus(jobId, "succeeded", { finished: true });
-
-  return {
-    pagesAttempted: CRAWL_PATHS.length,
-    pagesStored: pageResults.length,
-    baseUrl,
-  };
 }

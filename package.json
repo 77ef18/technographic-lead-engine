@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "db:migrate": "node scripts/run-migrations.mjs"
+    "db:migrate": "node scripts/run-migrations.mjs",
+    "db:seed:fingerprints": "node scripts/seed-fingerprints.mjs"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
