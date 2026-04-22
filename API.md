@@ -99,3 +99,56 @@ Fetch crawl job status and timestamps.
 ## GET /api/domains/:id/history
 
 List recent crawl jobs for a domain.
+
+## POST /api/domains/import
+
+Bulk import via CSV text payload.
+
+```json
+{
+  "csv": "example.com\nshop.com",
+  "status": "active"
+}
+```
+
+## GET /api/domains/:id/detections
+
+Returns current + historical detections with confidence and evidence.
+
+## GET /api/domains/:id/enrichment
+
+Returns latest enrichment payload for a domain.
+
+## GET /api/search/leads
+
+Filter query:
+
+- `hasTech`
+- `techCategory`
+- `minConfidence`
+- `lastScannedAfter`
+- `country`
+- `language`
+- `limit`
+- `offset`
+
+## Lead Lists
+
+- `POST /api/lead-lists`
+- `GET /api/lead-lists`
+- `GET /api/lead-lists/:id`
+- `POST /api/lead-lists/:id/refresh`
+- `GET /api/lead-lists/:id/export.csv`
+
+## Fingerprints Admin
+
+- `GET /api/fingerprints`
+- `POST /api/fingerprints`
+- `PATCH /api/fingerprints/:id`
+
+## Ops/Admin
+
+- `GET /api/usage`
+- `GET /api/admin/failed-jobs`
+- `GET /api/admin/metrics`
+- `POST /api/cron/recrawl?batch=10&staleHours=168`

@@ -43,3 +43,23 @@
 - Response artifacts are persisted in `crawl_pages` (headers/cookies/scripts/meta/hash).
 - Homepage metadata snapshot is persisted to `enrichments`.
 - `GET /api/crawl-jobs/:id` and `GET /api/domains/:id/history` provide scan visibility.
+
+## Milestone 3 (Implemented)
+
+- Fingerprint detection engine with weighted confidence scoring.
+- Multi-signal boost, requires/implies/excludes dependency logic.
+- Automatic detection persistence (`is_current` tracking + evidence JSON).
+- Seed pipeline for high-value technologies/fingerprints.
+
+## Milestone 4 (Implemented)
+
+- Lead search API with filtering by tech/category/confidence/date/geo/language.
+- Saved lead lists + refresh workflow + CSV export endpoint.
+- Minimal UI pages for domains, domain details, lead builder, and lead list details.
+
+## Milestone 5 (Implemented)
+
+- Structured logging with correlation fields (`domain_id`, `crawl_job_id`).
+- Retry/dead-letter behavior for repeated crawl failures.
+- Metrics and failed-job admin endpoints for operations visibility.
+- Terms and privacy pages, plus retention policy documentation.

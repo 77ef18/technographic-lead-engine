@@ -63,19 +63,26 @@ export async function POST(
     );
 
     const job = jobInsert.rows[0];
-    const summary = await executeCrawlJob(job.id, {
-      id: domain.id,
-      domain: domain.domain,
-    });
+    try {
+      const summary = await executeCrawlJob(job.id, {
+        id: domain.id,
+        domain: domain.domain,
+      });
 
-    return Response.json({
-      crawlJob: {
-        id: job.id,
-        status: "succeeded",
-        domainId: domain.id,
-        ...summary,
-      },
-    });
+      return Response.json({
+        crawlJob: {
+          id: job.id,
+          status: "succeeded",
+          domainId: domain.id,
+          ...summary,
+        },
+      });
+    } catch (error) {
+      return jsonError("Crawl failed. Job moved to retry/dead-letter flow.", 500, {
+        crawlJobId: job.id,
+        details: String(error),
+      });
+    }
   } catch (error) {
     if (isDatabaseUnavailable(error)) {
       return jsonError("Database unavailable. Ensure Postgres is running and DATABASE_URL is correct.", 503);
