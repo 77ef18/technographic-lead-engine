@@ -41,6 +41,16 @@ async function triggerScan(formData: FormData) {
 }
 
 export default async function DomainDetailPage(props: PageProps<"/domains/[id]">) {
+  const formatDate = (value: unknown, fallback = "-") => {
+    if (!value) {
+      return fallback;
+    }
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    return String(value);
+  };
+
   const { id } = await props.params;
 
   const domainResult = await dbQuery<{ id: string; domain: string; status: string }>(
@@ -178,7 +188,7 @@ export default async function DomainDetailPage(props: PageProps<"/domains/[id]">
           {history.rows.map((job) => (
             <div key={job.id} className="rounded border border-zinc-200 p-2 dark:border-zinc-700">
               <div>
-                {job.created_at} - {job.status} ({job.trigger}, attempts {job.attempts})
+                {formatDate(job.created_at)} - {job.status} ({job.trigger}, attempts {job.attempts})
               </div>
               {job.error_message ? <div className="text-xs text-red-500">{job.error_message}</div> : null}
             </div>

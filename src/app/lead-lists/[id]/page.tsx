@@ -44,6 +44,16 @@ async function refreshList(formData: FormData) {
 }
 
 export default async function LeadListDetailPage(props: PageProps<"/lead-lists/[id]">) {
+  const formatDate = (value: unknown, fallback = "-") => {
+    if (!value) {
+      return fallback;
+    }
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    return String(value);
+  };
+
   const { id } = await props.params;
   const listResult = await dbQuery<{
     id: string;
@@ -80,7 +90,7 @@ export default async function LeadListDetailPage(props: PageProps<"/lead-lists/[
     <main className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <h1 className="text-2xl font-semibold">{leadList.name}</h1>
       <p className="text-sm text-zinc-600 dark:text-zinc-300">
-        Updated {leadList.updated_at} • {entries.rows.length} entries
+        Updated {formatDate(leadList.updated_at)} • {entries.rows.length} entries
       </p>
 
       <section className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
@@ -119,7 +129,7 @@ export default async function LeadListDetailPage(props: PageProps<"/lead-lists/[
               {entries.rows.map((entry) => (
                 <tr key={entry.domain} className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4">{entry.domain}</td>
-                  <td className="py-2 pr-4">{entry.added_at}</td>
+                  <td className="py-2 pr-4">{formatDate(entry.added_at)}</td>
                 </tr>
               ))}
             </tbody>

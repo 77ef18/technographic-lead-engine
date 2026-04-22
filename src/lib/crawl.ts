@@ -32,10 +32,20 @@ type FetchResult = {
   headers: Record<string, string>;
   cookies: string[];
   scripts: string[];
-  meta: Record<string, string>;
+  meta: Record<string, unknown>;
   htmlHash: string | null;
   html: string;
 };
+
+const INLINE_MARKER_REGEXES = [
+  /bazaarvoice/gi,
+  /skai/gi,
+  /kenshoo/gi,
+  /amazonaws/gi,
+  /aws/gi,
+  /trustpilot/gi,
+  /google_tag_manager|googletagmanager/gi,
+];
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -74,6 +84,8 @@ function extractSignals(html: string) {
         x: null,
         facebook: null,
       },
+      inlineScriptMarkers: [],
+      htmlExcerpt: "",
     };
   }
 
@@ -105,14 +117,36 @@ function extractSignals(html: string) {
   const title = $("title").first().text().trim() || null;
   const description = meta.description ?? meta["og:description"] ?? null;
   const language = ($("html").attr("lang") ?? meta["content-language"] ?? "").trim() || null;
+  const inlineScriptBodies = $("script:not([src])")
+    .map((_, el) => ($(el).html() ?? "").trim())
+    .get()
+    .filter(Boolean);
+
+  const inlineScriptMarkers = new Set<string>();
+  for (const body of inlineScriptBodies) {
+    for (const regex of INLINE_MARKER_REGEXES) {
+      const matches = body.match(regex) ?? [];
+      for (const match of matches) {
+        inlineScriptMarkers.add(match.toLowerCase());
+      }
+    }
+  }
+
+  const htmlExcerpt = html.slice(0, 20_000);
 
   return {
     scripts,
-    meta,
+    meta: {
+      ...meta,
+      __inline_script_markers: [...inlineScriptMarkers],
+      __html_excerpt: htmlExcerpt,
+    },
     title,
     description,
     language,
     social,
+    inlineScriptMarkers: [...inlineScriptMarkers],
+    htmlExcerpt,
   };
 }
 

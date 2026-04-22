@@ -21,7 +21,7 @@ type CrawlSignalRow = {
   headers_json: Record<string, string>;
   cookies_json: string[];
   scripts_json: string[];
-  meta_json: Record<string, string>;
+  meta_json: Record<string, unknown>;
 };
 
 type EnrichmentSignalRow = {
@@ -89,6 +89,16 @@ function fingerprintMatches(
   enrichment: EnrichmentSignalRow | null,
 ) {
   const pattern = fingerprint.pattern;
+  const htmlExcerpts = pages
+    .map((page) => {
+      const excerpt = page.meta_json?.__html_excerpt;
+      return typeof excerpt === "string" ? excerpt : "";
+    })
+    .filter(Boolean);
+  const inlineMarkers = pages.flatMap((page) => {
+    const markers = page.meta_json?.__inline_script_markers;
+    return Array.isArray(markers) ? markers.map((value) => String(value)) : [];
+  });
 
   if (fingerprint.signal_type === "script") {
     const scripts = pages.flatMap((page) => page.scripts_json ?? []);
@@ -99,14 +109,16 @@ function fingerprintMatches(
     const keyed = parseKeyedPattern(pattern);
     if (!keyed) {
       const pairs = pages.flatMap((page) =>
-        Object.entries(page.meta_json ?? {}).map(([key, value]) => `${key}:${value}`),
+        Object.entries(page.meta_json ?? {})
+          .filter(([key]) => !key.startsWith("__"))
+          .map(([key, value]) => `${key}:${String(value)}`),
       );
       return pairs.some((pair) => tryMatch(pattern, pair));
     }
 
     return pages.some((page) => {
       const value = (page.meta_json ?? {})[keyed.key];
-      return value ? tryMatch(keyed.valuePattern, value) : false;
+      return value ? tryMatch(keyed.valuePattern, String(value)) : false;
     });
   }
 
@@ -138,6 +150,14 @@ function fingerprintMatches(
   if (fingerprint.signal_type === "tls") {
     const tlsValues = enrichment ? getTlsValues(enrichment.tls_json ?? {}) : [];
     return tlsValues.some((value) => tryMatch(pattern, value));
+  }
+
+  if (fingerprint.signal_type === "html") {
+    return htmlExcerpts.some((excerpt) => tryMatch(pattern, excerpt));
+  }
+
+  if (fingerprint.signal_type === "js" || fingerprint.signal_type === "dom") {
+    return inlineMarkers.some((marker) => tryMatch(pattern, marker));
   }
 
   return false;

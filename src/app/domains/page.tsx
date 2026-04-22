@@ -53,6 +53,16 @@ async function importCsv(formData: FormData) {
 }
 
 export default async function DomainsPage() {
+  const formatDate = (value: unknown, fallback = "never") => {
+    if (!value) {
+      return fallback;
+    }
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    return String(value);
+  };
+
   const result = await dbQuery<{
     id: string;
     domain: string;
@@ -140,7 +150,7 @@ export default async function DomainsPage() {
                     </a>
                   </td>
                   <td className="py-2 pr-4">{row.status}</td>
-                  <td className="py-2 pr-4">{row.last_scan_at ?? "never"}</td>
+                  <td className="py-2 pr-4">{formatDate(row.last_scan_at)}</td>
                 </tr>
               ))}
             </tbody>

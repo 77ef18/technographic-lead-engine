@@ -1,6 +1,16 @@
 import { dbQuery } from "@/lib/db";
 
 export default async function LeadListsPage() {
+  const formatDate = (value: unknown, fallback = "-") => {
+    if (!value) {
+      return fallback;
+    }
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    return String(value);
+  };
+
   const result = await dbQuery<{
     id: string;
     name: string;
@@ -47,7 +57,7 @@ export default async function LeadListsPage() {
                     </a>
                   </td>
                   <td className="py-2 pr-4">{Number(row.entries_count)}</td>
-                  <td className="py-2 pr-4">{row.updated_at}</td>
+                  <td className="py-2 pr-4">{formatDate(row.updated_at)}</td>
                 </tr>
               ))}
             </tbody>

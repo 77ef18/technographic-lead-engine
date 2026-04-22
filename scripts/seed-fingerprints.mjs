@@ -14,6 +14,39 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const coreTechs = [
   {
+    slug: "bazaarvoice",
+    name: "Bazaarvoice Reviews",
+    category: "reviews",
+    website: "https://www.bazaarvoice.com",
+    fingerprints: [
+      { signalType: "script", pattern: "apps\\.bazaarvoice\\.com", weight: 0.6 },
+      { signalType: "script", pattern: "bazaarvoice", weight: 0.25 },
+      { signalType: "html", pattern: "bazaarvoice", weight: 0.15 },
+    ],
+  },
+  {
+    slug: "skai",
+    name: "Skai",
+    category: "analytics",
+    website: "https://skai.io",
+    fingerprints: [
+      { signalType: "script", pattern: "skai|kenshoo", weight: 0.5 },
+      { signalType: "js", pattern: "skai|kenshoo", weight: 0.3 },
+      { signalType: "html", pattern: "skai|kenshoo", weight: 0.2 },
+    ],
+  },
+  {
+    slug: "amazon-web-services",
+    name: "Amazon Web Services",
+    category: "paas",
+    website: "https://aws.amazon.com",
+    fingerprints: [
+      { signalType: "script", pattern: "amazonaws\\.com", weight: 0.45 },
+      { signalType: "header", pattern: "x-amz|x-amzn|server:awselb|via:.*cloudfront", weight: 0.35 },
+      { signalType: "dns", pattern: "amazonaws|cloudfront", weight: 0.2 },
+    ],
+  },
+  {
     slug: "shopify",
     name: "Shopify",
     category: "ecommerce",
