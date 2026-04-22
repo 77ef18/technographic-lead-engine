@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { executeCrawlJob } from "@/lib/crawl";
 import { dbQuery } from "@/lib/db";
@@ -11,10 +12,16 @@ async function addDomain(formData: FormData) {
   const rawDomain = String(formData.get("domain") ?? "");
   const status = String(formData.get("status") ?? "active");
   if (!rawDomain) {
-    return;
+    redirect("/domains?error=empty_domain");
   }
 
-  const normalized = normalizeDomain(rawDomain);
+  let normalized = "";
+  try {
+    normalized = normalizeDomain(rawDomain);
+  } catch {
+    redirect("/domains?error=invalid_domain");
+  }
+
   await dbQuery(
     `
       INSERT INTO domains (domain, status)
@@ -26,6 +33,7 @@ async function addDomain(formData: FormData) {
     [normalized, status],
   );
   revalidatePath("/domains");
+  redirect(`/domains?notice=domain_saved&domain=${encodeURIComponent(normalized)}`);
 }
 
 async function importCsv(formData: FormData) {
@@ -52,6 +60,7 @@ async function importCsv(formData: FormData) {
     }
   }
   revalidatePath("/domains");
+  redirect(`/domains?notice=csv_imported&count=${lines.length}`);
 }
 
 async function triggerScan(formData: FormData) {
@@ -91,7 +100,7 @@ async function triggerScan(formData: FormData) {
   revalidatePath(`/domains/${domain.id}`);
 }
 
-export default async function DomainsPage() {
+export default async function DomainsPage(props: PageProps<"/domains">) {
   const formatDate = (value: unknown, fallback = "never") => {
     if (!value) {
       return fallback;
@@ -101,6 +110,11 @@ export default async function DomainsPage() {
     }
     return String(value);
   };
+  const searchParams = await props.searchParams;
+  const error = searchParams.error ? String(searchParams.error) : "";
+  const notice = searchParams.notice ? String(searchParams.notice) : "";
+  const noticeDomain = searchParams.domain ? String(searchParams.domain) : "";
+  const importedCount = searchParams.count ? String(searchParams.count) : "";
 
   const result = await dbQuery<{
     id: string;
@@ -131,12 +145,27 @@ export default async function DomainsPage() {
     <main className="mx-auto max-w-6xl space-y-6 px-6 py-10">
       <h1 className="text-2xl font-semibold">Domains</h1>
 
+      {error ? (
+        <section className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+          {error === "empty_domain" ? "Please enter a domain before clicking Add." : null}
+          {error === "invalid_domain" ? "That domain format looks invalid. Try values like example.com." : null}
+        </section>
+      ) : null}
+
+      {notice ? (
+        <section className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+          {notice === "domain_saved" ? `Saved domain: ${noticeDomain}` : null}
+          {notice === "csv_imported" ? `Imported ${importedCount || "0"} CSV row(s).` : null}
+        </section>
+      ) : null}
+
       <section className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
         <h2 className="mb-3 text-lg font-medium">Add domain</h2>
         <form action={addDomain} className="flex flex-wrap gap-2">
           <input
             name="domain"
             placeholder="example.com"
+            required
             className="rounded border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600"
           />
           <select
